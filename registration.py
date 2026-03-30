@@ -28,11 +28,17 @@ def display_images(image1,image2):
 
     image1_rgb = cv.cvtColor(image1, cv.COLOR_BGR2RGB)
     image2_rgb = cv.cvtColor(image2, cv.COLOR_BGR2RGB)
-    combined = cv.hconcat([image1_rgb,image2_rgb])
-    
-    plt.imshow(combined)
-    plt.axis("off")
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+    axes[0].imshow(image1_rgb)
+    axes[0].axis("off")
+    axes[1].imshow(image2_rgb)
+    axes[1].axis("off")
+
+    plt.tight_layout(pad=2.0)
     plt.show()
+    
 
 
 def mask_image(image, model,processor, device):
@@ -102,7 +108,7 @@ def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoi
     for match_pair in matches:
       if len(match_pair) == 2:
         m, n = match_pair
-        if m.distance < .4 * n.distance:
+        if m.distance < .75 * n.distance:
           best_matches.append(m)
 
     best_matches = sorted(best_matches, key=lambda x: x.distance)
@@ -118,12 +124,11 @@ def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     '''
     '''
     image = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    image = cv.cvtColor(img3, cv.COLOR_BGR2RGB)
+    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
 
     plt.imshow(image)
     plt.axis("off")
     plt.show()
-
 
 
 def affine_transform(image_1_pts,image_2_pts,image_1,image_2 ):
