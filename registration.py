@@ -78,6 +78,7 @@ def detect_features(image, mask, feature_detection_type,max_keypoints=None):
    
    elif feature_detection_type == "SIFT":
       return sift_feature_detection(max_keypoints, image,mask)
+   
    elif feature_detection_type == "AKAZE":
       return akaze_feature_detection(image,mask)
    else:
@@ -88,6 +89,7 @@ def akaze_feature_detection(image,mask):
    keypoints, descriptors = akaze.detectAndCompute(image,mask)
 
    return keypoints, descriptors
+
 def orb_feature_detection(max_keypoints, image, mask):
 
     orb = cv.ORB.create(max_keypoints)
@@ -113,6 +115,8 @@ def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoi
     
     elif feature_detection_type == "SIFT":
         method = cv.DESCRIPTOR_MATCHER_BRUTEFORCE_SL2
+    elif feature_detection_type == "AKAZE":
+       method = cv.DescriptorMatcher_BRUTEFORCE_HAMMING
 
     else:
         raise ValueError("Invalid feature detection type. Choose 'ORB' or 'SIFT'")
