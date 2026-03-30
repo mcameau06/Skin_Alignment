@@ -102,7 +102,7 @@ def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoi
     for match_pair in matches:
       if len(match_pair) == 2:
         m, n = match_pair
-        if m.distance < .8 * n.distance:
+        if m.distance < .4 * n.distance:
           best_matches.append(m)
 
     best_matches = sorted(best_matches, key=lambda x: x.distance)
