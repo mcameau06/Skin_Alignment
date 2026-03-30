@@ -96,14 +96,22 @@ def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoi
         
 
     matcher = cv.DescriptorMatcher.create(method)
-    matches = matcher.match(descriptors_1,descriptors_2)
-    all_matches = sorted(matches, key=lambda x: x.distance)[:85]
+    matches = matcher.knnMatch(descriptors_1, descriptors_2, k=2)
+
+    best_matches = []
+    for match_pair in matches:
+      if len(match_pair) == 2:
+        m, n = match_pair
+        if m.distance < .8 * n.distance:
+          best_matches.append(m)
+
+    best_matches = sorted(best_matches, key=lambda x: x.distance)
     
     # extract best matches
-    ptsA = np.array([image_1_keypoints[m.queryIdx].pt for m in all_matches], dtype="float32").reshape(-1, 1, 2)
-    ptsB = np.array([image_2_keypoints[m.trainIdx].pt for m in all_matches], dtype="float32").reshape(-1, 1, 2)
+    ptsA = np.array([image_1_keypoints[m.queryIdx].pt for m in best_matches], dtype="float32").reshape(-1, 1, 2)
+    ptsB = np.array([image_2_keypoints[m.trainIdx].pt for m in best_matches], dtype="float32").reshape(-1, 1, 2)
 
-    return ptsA, ptsB,all_matches
+    return ptsA, ptsB,best_matches
 
 
 def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
