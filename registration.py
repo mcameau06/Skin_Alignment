@@ -71,23 +71,23 @@ def mask_image(image, model,processor, device):
     return mask
 
 
-def detect_features(max_keypoints, image, mask, feature_detection_type):
+def detect_features(image, mask, feature_detection_type,max_keypoints=None):
    
    if feature_detection_type == "ORB":
-      keypoints, descriptors = orb_feature_detection(max_keypoints,image,mask)
-
-      return keypoints,descriptors
+      return orb_feature_detection(max_keypoints,image,mask)
    
    elif feature_detection_type == "SIFT":
-      keypoints, descriptors = sift_feature_detection(max_keypoints, image,mask)
-      return keypoints, descriptors
-   
+      return sift_feature_detection(max_keypoints, image,mask)
+   elif feature_detection_type == "AKAZE":
+      return akaze_feature_detection(image,mask)
    else:
-      raise NameError("Detection type not found")
+      raise ValueError("Detection type not found")
    
+def akaze_feature_detection(image,mask):
+   akaze = cv.AKAZE.create()
+   keypoints, descriptors = akaze.detectAndCompute(image,mask)
 
-
-
+   return keypoints, descriptors
 def orb_feature_detection(max_keypoints, image, mask):
 
     orb = cv.ORB.create(max_keypoints)
