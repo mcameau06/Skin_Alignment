@@ -118,7 +118,7 @@ def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
 
 
 
-def doAffineTranform(image_1_pts,image_2_pts,image_1,image_2 ):
+def affine_tranform(image_1_pts,image_2_pts,image_1,image_2 ):
   
   (M, inliers) = cv.estimateAffine2D(image_2_pts,image_1_pts, cv.RANSAC)
   print(len(inliers))
@@ -127,6 +127,18 @@ def doAffineTranform(image_1_pts,image_2_pts,image_1,image_2 ):
     return None
 
   (h, w) = image_1.shape[:2]
-  aligned = cv.warpAffine(image_2, M, (w, h))
+  aligned_image = cv.warpAffine(image_2, M, (w, h))
 
-  return aligned
+  return aligned_image
+
+def homograpy(image_1_pts,image_2_pts, image_1,image_2):
+  (H, mask) = cv.findHomography(image_2_pts, image_1_pts,cv.RANSAC)
+  if H is None:
+    print("Transformation matrix not found")
+    return None
+
+  (h, w) = image_1.shape[:2]
+  aligned_image = cv.warpPerspective(image_2, H, (w, h))
+  
+  return aligned_image
+
