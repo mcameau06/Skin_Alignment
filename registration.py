@@ -65,28 +65,6 @@ def mask_image(image, model,processor, device):
     return mask
     
 
-def match_features(descriptors_1,descriptors_2, feature_detection_type):
-    '''
-    '''
-    
-    if feature_detection_type == "ORB":
-        method = cv.DESCRIPTOR_MATCHER_BRUTEFORCE_HAMMING
-    
-    elif feature_detection_type == "SIFT":
-        method = cv.DESCRIPTOR_MATCHER_BRUTEFORCE_SL2
-
-    else:
-        raise ValueError("Invalid feature detection type. Choose 'ORB' or 'SIFT'")
-        
-
-    matcher = cv.DescriptorMatcher.create(method)
-    matches = matcher.match(descriptors_1,descriptors_2)
-    all_matches = sorted(matches, key=lambda x: x.distance)
-    all_matches = all_matches[:100]
-
-    
-    return all_matches
-
 def orb_feature_detection(max_keypoints, image, mask):
 
     orb = cv.ORB.create(max_keypoints)
@@ -101,6 +79,33 @@ def sift_feature_detection(max_keypoints,image,mask):
 
     return keypoints,descriptors
 
+def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoints, feature_detection_type):
+    '''
+    returns 
+    matches of image 1, matches of image 2, descriptor matcher object
+    '''
+    
+    if feature_detection_type == "ORB":
+        method = cv.DESCRIPTOR_MATCHER_BRUTEFORCE_HAMMING
+    
+    elif feature_detection_type == "SIFT":
+        method = cv.DESCRIPTOR_MATCHER_BRUTEFORCE_SL2
+
+    else:
+        raise ValueError("Invalid feature detection type. Choose 'ORB' or 'SIFT'")
+        
+
+    matcher = cv.DescriptorMatcher.create(method)
+    matches = matcher.match(descriptors_1,descriptors_2)
+    all_matches = sorted(matches, key=lambda x: x.distance)[:85]
+    
+    # extract best matches
+    ptsA = np.array([image_1_keypoints[m.queryIdx].pt for m in all_matches], dtype="float32").reshape(-1, 1, 2)
+    ptsB = np.array([image_2_keypoints[m.trainIdx].pt for m in all_matches], dtype="float32").reshape(-1, 1, 2)
+
+    return ptsA, ptsB,all_matches
+
+
 def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     '''
     '''
@@ -111,3 +116,17 @@ def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     plt.axis("off")
     plt.show()
 
+
+
+def doAffineTranform(image_1_pts,image_2_pts,image_1,image_2 ):
+  
+  (M, inliers) = cv.estimateAffine2D(image_2_pts,image_1_pts, cv.RANSAC)
+  print(len(inliers))
+  if M is None:
+    print("Tranformation matrix not found")
+    return None
+
+  (h, w) = image_1.shape[:2]
+  aligned = cv.warpAffine(image_2, M, (w, h))
+
+  return aligned
