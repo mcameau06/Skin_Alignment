@@ -118,7 +118,7 @@ def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
 
 
 
-def affine_tranform(image_1_pts,image_2_pts,image_1,image_2 ):
+def affine_transform(image_1_pts,image_2_pts,image_1,image_2 ):
   
   (M, inliers) = cv.estimateAffine2D(image_2_pts,image_1_pts, cv.RANSAC)
   print(len(inliers))
@@ -139,6 +139,6 @@ def homograpy(image_1_pts,image_2_pts, image_1,image_2):
 
   (h, w) = image_1.shape[:2]
   aligned_image = cv.warpPerspective(image_2, H, (w, h))
-  
+
   return aligned_image
 
