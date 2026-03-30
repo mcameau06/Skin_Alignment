@@ -69,7 +69,24 @@ def mask_image(image, model,processor, device):
     mask = masks[0][0][best_mask_index].numpy().astype(np.uint8) * 255
 
     return mask
-    
+
+
+def detect_features(max_keypoints, image, mask, feature_detection_type):
+   
+   if feature_detection_type == "ORB":
+      keypoints, descriptors = orb_feature_detection(max_keypoints,image,mask)
+
+      return keypoints,descriptors
+   
+   elif feature_detection_type == "SIFT":
+      keypoints, descriptors = sift_feature_detection(max_keypoints, image,mask)
+      return keypoints, descriptors
+   
+   else:
+      raise NameError("Detection type not found")
+   
+
+
 
 def orb_feature_detection(max_keypoints, image, mask):
 
@@ -144,7 +161,7 @@ def affine_transform(image_1_pts,image_2_pts,image_1,image_2 ):
 
   return aligned_image
 
-def homograpy(image_1_pts,image_2_pts, image_1,image_2):
+def homography(image_1_pts,image_2_pts, image_1,image_2):
   (H, mask) = cv.findHomography(image_2_pts, image_1_pts,cv.RANSAC)
   if H is None:
     print("Transformation matrix not found")
