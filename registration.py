@@ -117,10 +117,10 @@ def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoi
 def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     '''
     '''
-    img3 = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    img3 = cv.cvtColor(img3, cv.COLOR_BGR2RGB)
+    image = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    image = cv.cvtColor(img3, cv.COLOR_BGR2RGB)
 
-    plt.imshow(img3)
+    plt.imshow(image)
     plt.axis("off")
     plt.show()
 
