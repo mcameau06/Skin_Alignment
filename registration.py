@@ -156,7 +156,7 @@ def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     '''
     image = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
 
-    image = cv.cvtColor(image, cv.COLOR_GRAY2RGB)
+    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
 
     plt.imshow(image)
     plt.axis("off")
