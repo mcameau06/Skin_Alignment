@@ -174,8 +174,6 @@ def affine_transform(image_1_pts,image_2_pts,image_1,image_2 ):
   (h, w) = image_1.shape[:2]
   aligned_image = cv.warpAffine(image_2, M, (w, h))
   
-  aligned_image = cv.cvtColor(aligned_image, cv.COLOR_GRAY2BGR)
-
 
   return aligned_image
 
@@ -188,7 +186,6 @@ def homography(image_1_pts,image_2_pts, image_1,image_2):
   (h, w) = image_1.shape[:2]
   aligned_image = cv.warpPerspective(image_2, H, (w, h))
   
-  aligned_image = cv.cvtColor(aligned_image, cv.COLOR_GRAY2BGR)
 
   return aligned_image
 
