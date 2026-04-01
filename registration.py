@@ -11,15 +11,11 @@ def load(image1_path, image2_path):
     image1 = cv.imread(image1_path)
     if image1 is None:
       raise FileNotFoundError("Image 1 not found")
-    
-    image1 = cv.resize(image1,(500,500))
-    
+        
     image2 = cv.imread(image2_path)
 
     if image2 is None:
       raise FileNotFoundError("Image 2 not found")
-
-    image2 = cv.resize(image2, (500,500))
 
     return image1, image2 
 
@@ -38,17 +34,25 @@ def display_images(image1,image2):
 
     plt.tight_layout(pad=2.0)
     plt.show()
+   
+def process_image(image):
+
+    # scale image down by a factor of 1/3
+    image = cv.resize(image,(0,0),fx=1/3, fy=1/3, interpolation=cv.INTER_AREA)
+
+    # convert to grayscale
+    image = cv.cvtColor(image,cv.COLOR_BGR2GRAY)
     
+    return image, image.shape
 
-
-def mask_image(image, model,processor, device):
+def mask_image(image, model,processor, device,image_dimensions):
     '''
     '''
     image = Image.fromarray(cv.cvtColor(image, cv.COLOR_BGR2RGB))
 
     # this is location of what we want to segment
     # for now it's at the center
-    input_points = [[[250, 250]]]
+    input_points = [[[image_dimensions[1]/2, image_dimensions[0]/2]]]
 
     inputs = processor(image, input_points=input_points, return_tensors="pt").to(device)
     with torch.no_grad():
@@ -65,7 +69,7 @@ def mask_image(image, model,processor, device):
     best_mask_index = outputs.iou_scores.argmax().item()
     print(best_mask_index)
     
-    # Convert the best mask to a 1-channel uint8 array (0 or 255) for OpenCV
+    # Convert the best mask (highest IoU) to a 1-channel uint8 array (0 or 255) for OpenCV
     mask = masks[0][0][best_mask_index].numpy().astype(np.uint8) * 255
 
     return mask
@@ -86,7 +90,9 @@ def detect_features(image, mask, feature_detection_type,max_keypoints=None):
       return keypoints, descriptors
    else:
       raise ValueError("Detection type not found")
-   
+
+
+
 def akaze_feature_detection(image,mask):
    akaze = cv.AKAZE.create()
    keypoints, descriptors = akaze.detectAndCompute(image,mask)
@@ -128,6 +134,7 @@ def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoi
     matcher = cv.DescriptorMatcher.create(method)
     matches = matcher.knnMatch(descriptors_1, descriptors_2, k=2)
 
+    # use lowes ratio test to filter matches
     best_matches = []
     for match_pair in matches:
       if len(match_pair) == 2:
@@ -138,8 +145,8 @@ def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoi
     best_matches = sorted(best_matches, key=lambda x: x.distance)
     
     # extract best matches
-    ptsA = np.array([image_1_keypoints[m.queryIdx].pt for m in best_matches], dtype="float32").reshape(-1, 1, 2)
-    ptsB = np.array([image_2_keypoints[m.trainIdx].pt for m in best_matches], dtype="float32").reshape(-1, 1, 2)
+    ptsA = np.array([image_1_keypoints[m.queryIdx].pt for m in best_matches[:10]], dtype="float32").reshape(-1, 1, 2)
+    ptsB = np.array([image_2_keypoints[m.trainIdx].pt for m in best_matches[:10]], dtype="float32").reshape(-1, 1, 2)
 
     return ptsA, ptsB,best_matches
 
@@ -148,7 +155,8 @@ def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     '''
     '''
     image = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+
+    image = cv.cvtColor(image, cv.COLOR_GRAY2RGB)
 
     plt.imshow(image)
     plt.axis("off")
@@ -165,6 +173,9 @@ def affine_transform(image_1_pts,image_2_pts,image_1,image_2 ):
 
   (h, w) = image_1.shape[:2]
   aligned_image = cv.warpAffine(image_2, M, (w, h))
+  
+  aligned_image = cv.cvtColor(aligned_image, cv.COLOR_GRAY2BGR)
+
 
   return aligned_image
 
@@ -176,6 +187,8 @@ def homography(image_1_pts,image_2_pts, image_1,image_2):
 
   (h, w) = image_1.shape[:2]
   aligned_image = cv.warpPerspective(image_2, H, (w, h))
+  
+  aligned_image = cv.cvtColor(aligned_image, cv.COLOR_GRAY2BGR)
 
   return aligned_image
 
