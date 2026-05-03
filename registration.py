@@ -20,7 +20,7 @@ def load(image1_path, image2_path):
     return image1, image2 
 
 
-def display_images(image1,image2):
+def display_images(image1,image2,img1_day,img2_day):
 
     image1_rgb = cv.cvtColor(image1, cv.COLOR_BGR2RGB)
     image2_rgb = cv.cvtColor(image2, cv.COLOR_BGR2RGB)
@@ -28,8 +28,10 @@ def display_images(image1,image2):
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 
     axes[0].imshow(image1_rgb)
+    axes[0].set_title(f"Day {img1_day}")
     axes[0].axis("off")
     axes[1].imshow(image2_rgb)
+    axes[1].set_title(f"Day {img2_day}")
     axes[1].axis("off")
 
     plt.tight_layout(pad=2.0)
@@ -92,7 +94,6 @@ def detect_features(image, mask, feature_detection_type,max_keypoints=None):
       raise ValueError("Detection type not found")
 
 
-
 def akaze_feature_detection(image,mask):
    akaze = cv.AKAZE.create()
    keypoints, descriptors = akaze.detectAndCompute(image,mask)
@@ -113,43 +114,69 @@ def sift_feature_detection(max_keypoints,image,mask):
 
     return keypoints,descriptors
 
-def match_features(descriptors_1,descriptors_2,image_1_keypoints, image_2_keypoints, feature_detection_type):
-    '''
-    returns 
-    matches of image 1, matches of image 2, descriptor matcher object
-    '''
-    
-    if feature_detection_type == "ORB":
-        method = cv.DESCRIPTOR_MATCHER_BRUTEFORCE_HAMMING
-    
-    elif feature_detection_type == "SIFT":
-        method = cv.DESCRIPTOR_MATCHER_BRUTEFORCE_SL2
-    elif feature_detection_type == "AKAZE":
-       method = cv.DescriptorMatcher_BRUTEFORCE_HAMMING
-
+def FlannMatcher(kpsA, descsA, kpsB, descsB, feature):
+    if feature == "SIFT":
+        FLANN_INDEX_KDTREE = 1
+        index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+        search_params = dict(checks=50)
     else:
-        raise ValueError("Invalid feature detection type. Choose 'ORB' or 'SIFT'")
-        
+        # LSH index for binary descriptors (ORB, AKAZE)
+        FLANN_INDEX_LSH = 6
+        index_params = dict(
+            algorithm=FLANN_INDEX_LSH,
+            table_number=6,
+            key_size=12,
+            multi_probe_level=1
+        )
+        search_params = dict()
 
-    matcher = cv.DescriptorMatcher.create(method)
-    matches = matcher.knnMatch(descriptors_1, descriptors_2, k=2)
+    flann = cv.FlannBasedMatcher(index_params, search_params)
+    matches = flann.knnMatch(descsA, descsB, k=2)
 
-    # use lowes ratio test to filter matches
-    best_matches = []
-    for match_pair in matches:
-      if len(match_pair) == 2:
-        m, n = match_pair
-        if m.distance < .75 * n.distance:
-          best_matches.append(m)
+    good = []
+    for m in matches:
+        if len(m) == 2 and m[0].distance < 0.75 * m[1].distance:
+            good.append(m[0])
+    good = sorted(good, key=lambda x: x.distance)
 
-    best_matches = sorted(best_matches, key=lambda x: x.distance)
-    
-    # extract best matches
-    ptsA = np.array([image_1_keypoints[m.queryIdx].pt for m in best_matches[:10]], dtype="float32").reshape(-1, 1, 2)
-    ptsB = np.array([image_2_keypoints[m.trainIdx].pt for m in best_matches[:10]], dtype="float32").reshape(-1, 1, 2)
+    ptsA = np.float32([kpsA[m.queryIdx].pt for m in good[:10]]).reshape(-1, 1, 2)
+    ptsB = np.float32([kpsB[m.trainIdx].pt for m in good[:10]]).reshape(-1, 1, 2)
+    return ptsA, ptsB, good
 
-    return ptsA, ptsB,best_matches
 
+def BfMatcher(kpsA, descsA, kpsB, descsB, feature):
+    if feature == "SIFT":
+        norm = cv.NORM_L2          # L2 is more accurate than L1 for SIFT
+    else:
+        norm = cv.NORM_HAMMING     # required for binary descriptors (ORB, AKAZE)
+
+    # crossCheck=True: a match is only kept if it's the best match in BOTH directions
+    # This replaces the ratio test — don't use knnMatch here
+    matcher = cv.BFMatcher(norm, crossCheck=True)
+    matches = matcher.match(descsA, descsB)
+    matches = sorted(matches, key=lambda x: x.distance)
+    good = matches[:10]
+
+    ptsA = np.float32([kpsA[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+    ptsB = np.float32([kpsB[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+    return ptsA, ptsB, good
+
+
+def match_features(kpsA, descsA, kpsB, descsB, feature_detection_type, matcher_type="BF"):
+    '''
+    Dispatches to the correct matcher.
+
+    matcher_type : "BF" or "FLANN"
+    feature_detection_type : "SIFT", "ORB", or "AKAZE"
+
+    Returns: ptsA, ptsB, good_matches
+    '''
+    if matcher_type == "BF":
+        return BfMatcher(kpsA, descsA, kpsB, descsB, feature_detection_type)
+    elif matcher_type == "FLANN":
+        return FlannMatcher(kpsA, descsA, kpsB, descsB, feature_detection_type)
+    else:
+        raise ValueError(f"Unknown matcher_type '{matcher_type}'. Choose 'BF' or 'FLANN'.")
 
 def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     '''
