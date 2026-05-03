@@ -40,7 +40,7 @@ def display_images(image1,image2,img1_day,img2_day):
 def process_image(image):
 
     # scale image down by a factor of 1/3
-    image = cv.resize(image,(0,0),fx=1/3, fy=1/3, interpolation=cv.INTER_AREA)
+    image = cv.resize(image,(4500,3000),interpolation=cv.INTER_AREA)
 
     # convert to grayscale
     image = cv.cvtColor(image,cv.COLOR_BGR2GRAY)
@@ -184,7 +184,7 @@ def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
     image = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
 
     image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-
+    plt.figure(figsize=(10,5))
     plt.imshow(image)
     plt.axis("off")
     plt.show()
