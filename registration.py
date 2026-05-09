@@ -328,8 +328,11 @@ def refine_tps_pts(ptsA,ptsB,ransacThreshold):
     inlier_mask = inliers.ravel().astype(bool)
 
     # keep only matched points that are inliers
-    ptsA_refined = ptsA[inlier_mask]
-    ptsB_refined = ptsB[inlier_mask]
+    ptsA_refined = ptsA[inlier_mask].reshape(1,-1,2)
+    ptsB_refined = ptsB[inlier_mask].reshape(1,-1,2)
+
+
+
 
     print(f"Inlier Count: {inlier_mask.sum()}")
 
