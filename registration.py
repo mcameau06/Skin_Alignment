@@ -19,6 +19,7 @@ def load(image1_path, image2_path):
 
     return image1, image2 
 
+                        # image displaying
 
 def display_images(image1,image2,img1_day,img2_day):
 
@@ -36,12 +37,49 @@ def display_images(image1,image2,img1_day,img2_day):
 
     plt.tight_layout(pad=2.0)
     plt.show()
-   
+
+
+def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
+    '''
+    '''
+    image = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+    # convert to rgb for matplotlib
+    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+
+    plt.figure(figsize=(10,5))
+    plt.imshow(image)
+    plt.axis("off")
+    plt.show()
+
+
+def visualize_keypoints(image_1,image_2, keypoints_1, keypoints_2):
+
+    output_image_1 = cv.drawKeypoints(image_1, keypoints_1, None, (0, 255, 0), cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    output_image_2 = cv.drawKeypoints(image_2, keypoints_2, None, (0, 255, 0), cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+     # convert to rgb for matplotlib
+    output_image_1 = cv.cvtColor(output_image_1, cv.COLOR_BGR2RGB)
+    output_image_2 = cv.cvtColor(output_image_2, cv.COLOR_BGR2RGB)
+
+
+    axes[0].imshow(output_image_1)
+    axes[1].imshow(output_image_2)
+    axes[0].axis("off")
+    axes[1].axis("off")
+    
+    plt.tight_layout(pad=2.0)
+    plt.show()
+
+
+                    # image processing 
+
 def process_image(image):
 
     # scale image down by a factor of 1/3
     image = cv.resize(image,(4500,3000),interpolation=cv.INTER_AREA)
-
     # convert to grayscale
     image = cv.cvtColor(image,cv.COLOR_BGR2GRAY)
     
@@ -50,6 +88,7 @@ def process_image(image):
 def mask_image(image, model,processor, device,image_dimensions):
     '''
     '''
+
     image = Image.fromarray(cv.cvtColor(image, cv.COLOR_BGR2RGB))
 
     # this is location of what we want to segment
@@ -71,11 +110,25 @@ def mask_image(image, model,processor, device,image_dimensions):
     best_mask_index = outputs.iou_scores.argmax().item()
     print(best_mask_index)
     
-    # Convert the best mask (highest IoU) to a 1-channel uint8 array (0 or 255) for OpenCV
     mask = masks[0][0][best_mask_index].numpy().astype(np.uint8) * 255
 
     return mask
 
+def add_padding(image, padding=300):
+   """
+   returns a padded image, done before registration
+   """
+   return cv.copyMakeBorder(
+      image,
+      padding,
+      padding,
+      padding,
+      padding,
+      cv.BORDER_CONSTANT,
+      value=0
+   )
+
+                        # FEATURE DETECTION
 
 def detect_features(image, mask, feature_detection_type,max_keypoints=None):
    
@@ -91,8 +144,7 @@ def detect_features(image, mask, feature_detection_type,max_keypoints=None):
       keypoints, descriptors = akaze_feature_detection(image,mask)
       return keypoints, descriptors
    else:
-      raise ValueError("Detection type not found")
-
+      raise NotImplementedError("Detection type not found")
 
 def akaze_feature_detection(image,mask):
    akaze = cv.AKAZE.create()
@@ -114,13 +166,34 @@ def sift_feature_detection(max_keypoints,image,mask):
 
     return keypoints,descriptors
 
-def FlannMatcher(kpsA, descsA, kpsB, descsB, feature):
+                        # FEATURE MATCHING
+
+def match_features(kpsA, descsA, kpsB, descsB, feature_detection_type, matcher_type="BF"):
+    '''
+    Goes to the correct matcher.
+
+    matcher_type : "BF" or "FLANN"
+    feature_detection_type : "SIFT", "ORB", or "AKAZE"
+
+    Returns: ptsA, ptsB, top_matches
+    '''
+    if matcher_type == "BF":
+        return _bfMatcher(kpsA, descsA, kpsB, descsB, feature_detection_type)
+    elif matcher_type == "FLANN":
+        return _flannMatcher(kpsA, descsA, kpsB, descsB, feature_detection_type)
+    else:
+        raise NotImplementedError(f"Unknown matcher_type '{matcher_type}'. Choose 'BF' or 'FLANN'.")
+
+
+def _flannMatcher(kpsA, descsA, kpsB, descsB, feature):
+    
     if feature == "SIFT":
+        # k-d tree for sift/ floating point descriptors
         FLANN_INDEX_KDTREE = 1
         index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
         search_params = dict(checks=50)
     else:
-        # LSH index for binary descriptors (ORB, AKAZE)
+        # LSH index for binary descriptors
         FLANN_INDEX_LSH = 6
         index_params = dict(
             algorithm=FLANN_INDEX_LSH,
@@ -130,89 +203,134 @@ def FlannMatcher(kpsA, descsA, kpsB, descsB, feature):
         )
         search_params = dict()
 
-    flann = cv.FlannBasedMatcher(index_params, search_params)
+    flann = cv.FlannBasedMatcher(index_params, search_params)  
     matches = flann.knnMatch(descsA, descsB, k=2)
 
-    good = []
+    top_matches = []
     for m in matches:
         if len(m) == 2 and m[0].distance < 0.75 * m[1].distance:
-            good.append(m[0])
-    good = sorted(good, key=lambda x: x.distance)
+            top_matches.append(m[0])
 
-    ptsA = np.float32([kpsA[m.queryIdx].pt for m in good[:10]]).reshape(-1, 1, 2)
-    ptsB = np.float32([kpsB[m.trainIdx].pt for m in good[:10]]).reshape(-1, 1, 2)
-    return ptsA, ptsB, good
+    ptsA = np.asarray([kpsA[m.queryIdx].pt for m in top_matches], dtype=np.float32).reshape(-1, 1, 2)
+    ptsB = np.asarray([kpsB[m.trainIdx].pt for m in top_matches], dtype=np.float32).reshape(-1, 1, 2)
+                      
+    return ptsA, ptsB, top_matches
 
 
-def BfMatcher(kpsA, descsA, kpsB, descsB, feature):
+def _bfMatcher(kpsA, descsA, kpsB, descsB, feature):
+
     if feature == "SIFT":
-        norm = cv.NORM_L2          # L2 is more accurate than L1 for SIFT
+        norm = cv.NORM_L2          # using euclidean norm for SIFT
     else:
-        norm = cv.NORM_HAMMING     # required for binary descriptors (ORB, AKAZE)
+        norm = cv.NORM_HAMMING     # for binary descriptors we use hamming distance ex. ORB, AKAZE
+ 
+    bf = cv.BFMatcher(norm)
 
-    # crossCheck=True: a match is only kept if it's the best match in BOTH directions
-    # This replaces the ratio test — don't use knnMatch here
-    matcher = cv.BFMatcher(norm, crossCheck=True)
-    matches = matcher.match(descsA, descsB)
-    matches = sorted(matches, key=lambda x: x.distance)
-    good = matches[:10]
+    matches = bf.knnMatch(descsA, descsB, k=2) 
 
-    ptsA = np.float32([kpsA[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-    ptsB = np.float32([kpsB[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-    return ptsA, ptsB, good
+    # lowes ratio test to filter matches
+    top_matches = []
+    for m in matches:
+        if len(m) == 2 and m[0].distance < 0.75 * m[1].distance:
+            top_matches.append(m[0])
 
+    ptsA = np.asarray([kpsA[m.queryIdx].pt for m in top_matches], dtype=np.float32).reshape(-1, 1, 2)
+    ptsB = np.asarray([kpsB[m.trainIdx].pt for m in top_matches], dtype=np.float32).reshape(-1, 1, 2)
 
-def match_features(kpsA, descsA, kpsB, descsB, feature_detection_type, matcher_type="BF"):
-    '''
-    Dispatches to the correct matcher.
+    return ptsA, ptsB, top_matches
 
-    matcher_type : "BF" or "FLANN"
-    feature_detection_type : "SIFT", "ORB", or "AKAZE"
+                    # IMAGE WARPING 
 
-    Returns: ptsA, ptsB, good_matches
-    '''
-    if matcher_type == "BF":
-        return BfMatcher(kpsA, descsA, kpsB, descsB, feature_detection_type)
-    elif matcher_type == "FLANN":
-        return FlannMatcher(kpsA, descsA, kpsB, descsB, feature_detection_type)
+def register_image(image_1, image_2, image_1_pts, image_2_pts, ransacThreshold:float, transformation_type="TPS",regularization=5000):
+    """
+    returns:
+        aligned image
+        inliers
+    """
+
+    if transformation_type == "Affine":
+        return affine_transform(image_1,image_2, image_1_pts,image_2_pts,ransacThreshold)
+    
+    elif transformation_type == "Homograpy":
+        return homography(image_1,image_2, image_1_pts,image_2_pts,ransacThreshold)
+    
+    elif transformation_type == "TPS":
+        return thin_plate_spline(image_1,image_2, image_1_pts,image_2_pts,ransacThreshold,regularization)
+    
     else:
-        raise ValueError(f"Unknown matcher_type '{matcher_type}'. Choose 'BF' or 'FLANN'.")
+        raise NotImplementedError(f"Unknown transformation type {transformation_type}, only Affine, Homography, and Thin Plate Spline Supported")
 
-def visualize_matches(image_1, image_2, keypoints_1, keypoints_2, matches):
-    '''
-    '''
-    image = cv.drawMatches(image_1,keypoints_1,image_2, keypoints_2, matches, None, flags= cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-
-    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-    plt.figure(figsize=(10,5))
-    plt.imshow(image)
-    plt.axis("off")
-    plt.show()
-
-
-def affine_transform(image_1_pts,image_2_pts,image_1,image_2 ):
+def affine_transform(image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3.0):
+  """
+    ransac reprojection threshold controls how strict finding inliers is
+  """
   
-  (M, inliers) = cv.estimateAffine2D(image_2_pts,image_1_pts, cv.RANSAC)
-  print(len(inliers))
+  (M, inliers) = cv.estimateAffine2D(image_2_pts, image_1_pts, method=cv.RANSAC, ransacReprojThreshold=ransacThreshold)
+
   if M is None:
     print("Tranformation matrix not found")
     return None
+ 
+  print(f'Inlier count: {np.sum(inliers)}')
 
   (h, w) = image_1.shape[:2]
   aligned_image = cv.warpAffine(image_2, M, (w, h))
   
+  return aligned_image, inliers
 
-  return aligned_image
+def homography( image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3.0):
+    """
+    ransac reprojection threshold controls how strict finding inliers is
+    """
+  # mask 
+    (H, mask) = cv.findHomography(image_2_pts, image_1_pts,cv.RANSAC, ransacReprojThreshold=ransacThreshold)  
 
-def homography(image_1_pts,image_2_pts, image_1,image_2):
-  (H, mask) = cv.findHomography(image_2_pts, image_1_pts,cv.RANSAC)
-  if H is None:
-    print("Transformation matrix not found")
-    return None
+    if H is None:
+        print("Transformation matrix not found")
+        return None
 
-  (h, w) = image_1.shape[:2]
-  aligned_image = cv.warpPerspective(image_2, H, (w, h))
+    print(f'Inlier count: {np.sum(mask)}')
+
+    (h, w) = image_1.shape[:2]
+    aligned_image = cv.warpPerspective(image_2, H, (w, h))
   
+    return aligned_image, mask
 
-  return aligned_image
+def thin_plate_spline(image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3.0, regularization=5000):
 
+    # do ransac to get better matches
+    ptsA, ptsB, inliers = refine_tps_pts(image_1_pts,image_2_pts,ransacThreshold)
+
+    # regularization controls how much we want it to fit the src image, lower means the warped image will move more
+    tps = cv.createThinPlateSplineShapeTransformer(regularization) 
+
+    # create new matches 
+    matches = [cv.DMatch(i, i, 0) for i in range(ptsA.shape[1])]
+
+    tps.estimateTransformation(ptsA,ptsB,matches)
+
+    warped_image = tps.warpImage(image_2)
+
+    # get the dimensions of the src image
+    h,w = image_1.shape[:2]
+
+    return warped_image[:h,:w], inliers
+
+def refine_tps_pts(ptsA,ptsB,ransacThreshold):
+
+    M, inliers = cv.estimateAffine2D(ptsB,ptsA,method=cv.RANSAC, ransacReprojThreshold=ransacThreshold)
+
+    if M is None:
+        print("Transformation matrix not found")
+        return None
+
+    # creates a boolean mask where inliers are true and outliers are false
+    inlier_mask = inliers.ravel().astype(bool)
+
+    # keep only matched points that are inliers
+    ptsA_refined = ptsA[inlier_mask]
+    ptsB_refined = ptsB[inlier_mask]
+
+    print(f"Inlier Count: {inlier_mask.sum()}")
+
+    return ptsA_refined,ptsB_refined, inliers
