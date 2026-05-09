@@ -1,4 +1,3 @@
-import cv2 as cv
 import matplotlib.pyplot as plt
 from PIL import Image
 import torch
