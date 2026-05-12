@@ -1,6 +1,7 @@
 import cv2 as cv
 import matplotlib.pyplot as plt
 from PIL import Image
+from numpy._core.multiarray import interp
 import torch
 import numpy as np
 
@@ -73,17 +74,30 @@ def visualize_keypoints(image_1,image_2, keypoints_1, keypoints_2):
     plt.tight_layout(pad=2.0)
     plt.show()
 
-
                     # image processing 
 
-def process_image(image):
+def process_image(image, type, target_size: tuple[int, int] = (1280, 960)):
 
-    # scale image down by a factor of 1/3
-    image = cv.resize(image,(4500,3000),interpolation=cv.INTER_AREA)
-    # convert to grayscale
-    image = cv.cvtColor(image,cv.COLOR_BGR2GRAY)
-    
-    return image, image.shape
+    if type == "GRAYSCALE":
+        image = cv.resize(image, target_size, interpolation=cv.INTER_AREA)
+        image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+        return image
+    elif type == "CLAHE": # used CLAHE normalization from Soenksen paper SPL_UD_DL
+
+        image = cv.resize(image, target_size, interpolation=cv.INTER_AREA)
+        img_hsv = cv.cvtColor(image, cv.COLOR_RGB2HSV)
+
+        clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        img_hsv[:,:,2] = clahe.apply(img_hsv[:,:,2])
+
+        img = cv.cvtColor(img_hsv, cv.COLOR_HSV2RGB)
+
+        return img
+    elif type == "RESIZE":
+        return cv.resize(image,target_size,interpolation=cv.INTER_AREA)
+    else:
+        raise NotImplementedError(f"Unknown process image type {type}")
+
 
 def mask_image(image, model,processor, device,image_dimensions):
     '''
@@ -239,7 +253,58 @@ def _bfMatcher(kpsA, descsA, kpsB, descsB, feature):
 
     return ptsA, ptsB, top_matches
 
+
+
+                            # Efficient Loftr
+
+def match_eloftr(image1, image2, model, processor,device, threshold=.1):
+    # convert to PIL
+    img1 = Image.fromarray(image1)
+    img2 = Image.fromarray(image2)
+    images = [img1, img2]
+
+    inputs = processor(images, return_tensors="pt")
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+
+    model.eval()
+    with torch.no_grad():
+        outputs = model(**inputs)
+   
+
+    image_sizes = [[(img1.height, img1.width), (img2.height, img2.width)]]
+    results = processor.post_process_keypoint_matching(
+        outputs, image_sizes, threshold=threshold
+    )
+
+    # extract matched points
+    result = results[0]
+    ptsA = result["keypoints0"].cpu().numpy().astype(np.float32).reshape(-1, 1, 2)
+    ptsB = result["keypoints1"].cpu().numpy().astype(np.float32).reshape(-1, 1, 2)
+
+    return ptsA, ptsB
+
+
+
+def filter_eloftr_matches(ptsA, ptsB, ransacThreshold=8.0):
+    threshold = ransacThreshold
+    F, mask = cv.findFundamentalMat(
+        ptsA.reshape(-1, 2),
+        ptsB.reshape(-1, 2),
+        cv.USAC_MAGSAC, # used by demo
+        threshold,
+        0.999
+    )
+    if mask is None:
+        return ptsA, ptsB
+    inliers = mask.ravel().astype(bool)
+    print(f"Inliers after fundamental: {inliers.sum()} / {len(mask)}")
+    return ptsA[inliers].reshape(-1, 1, 2), ptsB[inliers].reshape(-1, 1, 2)
+
+
                     # IMAGE WARPING 
+
+
 
 def register_image(image_1, image_2, image_1_pts, image_2_pts, ransacThreshold:float, transformation_type="TPS",regularization=5000):
     """
@@ -260,23 +325,28 @@ def register_image(image_1, image_2, image_1_pts, image_2_pts, ransacThreshold:f
     else:
         raise NotImplementedError(f"Unknown transformation type {transformation_type}, only Affine, Homography, and Thin Plate Spline Supported")
 
+
+
 def affine_transform(image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3.0):
   """
     ransac reprojection threshold controls how strict finding inliers is
   """
   
-  (M, inliers) = cv.estimateAffine2D(image_2_pts, image_1_pts, method=cv.RANSAC, ransacReprojThreshold=ransacThreshold)
+  (M, mask) = cv.estimateAffine2D(image_2_pts, image_1_pts, method=cv.RANSAC, ransacReprojThreshold=ransacThreshold)
 
   if M is None:
     print("Tranformation matrix not found")
     return None
  
-  print(f'Inlier count: {np.sum(inliers)}')
+  print(f'Inlier count: {np.sum(mask)}')
+  print(f"Inlier ratio: {np.sum(mask) / len(mask)}")
 
   (h, w) = image_1.shape[:2]
   aligned_image = cv.warpAffine(image_2, M, (w, h))
   
-  return aligned_image, inliers
+  return aligned_image, mask
+
+
 
 def homography( image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3.0):
     """
@@ -290,11 +360,14 @@ def homography( image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3.0):
         return None
 
     print(f'Inlier count: {np.sum(mask)}')
+    print(f"Inlier ratio: {np.sum(mask) / len(mask)}")
 
     (h, w) = image_1.shape[:2]
     aligned_image = cv.warpPerspective(image_2, H, (w, h))
   
     return aligned_image, mask
+
+
 
 def thin_plate_spline(image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3.0, regularization=5000):
 
@@ -318,22 +391,20 @@ def thin_plate_spline(image_1,image_2,image_1_pts,image_2_pts, ransacThreshold=3
 
 def refine_tps_pts(ptsA,ptsB,ransacThreshold):
 
-    M, inliers = cv.estimateAffine2D(ptsB,ptsA,method=cv.RANSAC, ransacReprojThreshold=ransacThreshold)
+    M, mask = cv.estimateAffine2D(ptsB,ptsA,method=cv.RANSAC, ransacReprojThreshold=ransacThreshold)
 
     if M is None:
         print("Transformation matrix not found")
         return None
 
     # creates a boolean mask where inliers are true and outliers are false
-    inlier_mask = inliers.ravel().astype(bool)
+    inlier_mask = mask.ravel().astype(bool)
 
     # keep only matched points that are inliers
     ptsA_refined = ptsA[inlier_mask].reshape(1,-1,2)
     ptsB_refined = ptsB[inlier_mask].reshape(1,-1,2)
 
-
-
-
     print(f"Inlier Count: {inlier_mask.sum()}")
+    print(f"Inlier ratio: {inlier_mask.sum() / len(mask)}")
 
-    return ptsA_refined,ptsB_refined, inliers
+    return ptsA_refined,ptsB_refined, mask
